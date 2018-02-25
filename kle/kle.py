@@ -66,7 +66,7 @@ class Point(namedtuple('Point', ('x', 'y'))):
             return Point(self.x, self.y) / self.magnitude()
 
 
-class Key(object):
+class KLEKey(object):
     """              ( x, y )
      0 top left      (-1, -1)
      1 bottom left   (-1,  1)
@@ -128,7 +128,7 @@ class Key(object):
         self._u_ry = self.properties.ry
 
         legends = text.split("\n")
-        max_legends = len(Key.LEGEND_MAP)
+        max_legends = len(KLEKey.LEGEND_MAP)
         if len(legends) > max_legends:
             raise Exception(KLEParseError("Too many legends for key. Got {}, max is {}"
                                           .format(len(legends), max_legends)))
@@ -146,24 +146,24 @@ class Key(object):
                 self._legends [key] = ''
 
     def get_legend(self, key):
-        assert(key in Key.LEGEND_MAP)
+        assert(key in KLEKey.LEGEND_MAP)
         return self._legends[key]
 
     def set_legend(self, key, value):
-        assert(key in Key.LEGEND_MAP)
+        assert(key in KLEKey.LEGEND_MAP)
         assert(type(value) == str)
         self._legends[key] = value
 
     def get_legend_list(self):
         result = []
-        for key in range(len(Key.LEGEND_MAP)):
+        for key in range(len(KLEKey.LEGEND_MAP)):
             if self._legends[key] != "":
-                result.append((Key.LEGEND_MAP[key], self._legends[key]))
+                result.append((KLEKey.LEGEND_MAP[key], self._legends[key]))
         return result
 
-    def get_legend_text(self):
+    def get_legend_str(self):
         result = ""
-        for key in range(len(Key.LEGEND_MAP)):
+        for key in range(len(KLEKey.LEGEND_MAP)):
             result += self._legends[key] + "\n"
         return result.strip("\n")
 
@@ -228,6 +228,11 @@ class Key(object):
         center = pos + 1/2 * (self.w + self.h*1j) * rotate_complex(self.r_rad)
         return Point(center.real, center.imag)
 
+    def set_center(self, x, y):
+        new_center = x + y*1j
+        corner = new_center - 1/2 * (self.w + self.h*1j) * rotate_complex(self.r_rad)
+        self.set_pos(corner.real, corner.imag)
+
     def bounding_box(self):
         points = self.get_rect_points()
         xmin = math.inf
@@ -261,20 +266,22 @@ class Key(object):
         self._spacing = value
 
     def get_pos(self):
-        pos = (self._u_x + self._u_y*1j) * rotate_complex(self.r_rad) + (self._u_rx + self._u_ry*1j)
+        rpos = (self._u_rx + self._u_ry*1j)
+        pos = rpos + (self._u_x + self._u_y*1j) * rotate_complex(self.r_rad)
         pos *= self._spacing
         return Point(pos.real, pos.imag)
 
-    def set_pos(self, x, y, r=None, rx=None, ry=None):
-        if rx:
-            u_rx = rx / self.spacing
-        if ry:
-            u_ry = ry / self.spacing
-        self.set_u_pos(
-            x / self._spacing,
-            y / self._spacing,
-            r, u_rx, u_ry
-        )
+    def set_pos(self, x, y):
+        u_pos = Point(x, y) / self._spacing # remove scaling
+        u_pos -= Point(self._u_rx, self._u_ry) # remove translation offset
+        u_pos = (u_pos.x + u_pos.y*1j) * rotate_complex(-self.r_rad) # remove rotation
+        self._u_x = u_pos.real # left with unit positions
+        self._u_y = u_pos.imag
+
+    def set_angle(self, new_r):
+        pos = self.get_center()
+        self._r = new_r
+        self.set_center(pos.x, pos.y)
 
     @property
     def u_x(self):
@@ -303,15 +310,25 @@ class Key(object):
         if u_ry: self._u_ry = u_ry
 
     def __str__(self):
-        return "Key(legend={}, ux={}, uy={}, uw={}, uh={}, r={})".format(
+        return "KLEKey(legend={}, ux={}, uy={}, uw={}, uh={}, r={})".format(
             repr(self.get_legend_text()), self._u_x, self._u_y, self._u_w, self._u_h, self._r
         )
 
     def __repr__(self):
         return str(self)
 
+    def get_properties(self):
+        result = KeyProperties()
+        result.x = self._u_x
+        result.y = self._u_y
+        result.w = self._u_w
+        result.h = self._u_h
+        result.rx = self._u_rx
+        result.ry = self._u_ry
+        return result
 
-class KeyProperties:
+
+class KeyProperties(object):
     def __init__(self,
                  x=0, y=0,
                  w=1, h=1,
@@ -337,6 +354,7 @@ class KeyProperties:
         self.homing = False
         self.decal = False
 
+    @staticmethod
     def from_json(obj):
         props = KeyProperties()
         if 'x' in obj:
@@ -362,6 +380,16 @@ class KeyProperties:
         if 'n' in obj:
             props.stepped = bool(obj['n'])
         return props
+
+    def to_json(self):
+        result = {}
+        for field in [
+            'x', 'y', 'w', 'h', 'x2', 'y2', 'w2', 'h2',
+            'rx', 'ry',
+        ]:
+            value = getattr(self, field)
+            if value != None: result[field] = value
+        return result
 
 
 class KbProperties(object):
@@ -446,7 +474,7 @@ class KLEKeyboard(object):
         self.cur_y += y
         pos_x = self.cur_x
         pos_y = self.cur_y
-        key = Key(pos_x, pos_y, w, h, text=text, properties=self.global_props,
+        key = KLEKey(pos_x, pos_y, w, h, text=text, properties=self.global_props,
                   decal=decal, spacing=self.spacing)
         self.keys.append(key)
         self.cur_x += w
@@ -483,20 +511,58 @@ class KLEKeyboard(object):
                     keyboard.add_key(x, y, w, h, text=key_text, decal=d)
                     # reset properties for next key
                     props = KeyProperties()
+                    pos += 1
                 elif type(key) == dict:
                     props = KeyProperties.from_json(key)
 
-                    old_rx = keyboard.global_props.rx
-                    old_ry = keyboard.global_props.ry
                     keyboard.global_props.update(key)
 
-                    if keyboard.global_props.rx != old_rx \
-                        or keyboard.global_props.ry != old_ry:
-                        keyboard.reset_pos(0, 0)
-                pos += 1
+                    if 'rx' in key:
+                        keyboard.cur_x = 0
+                    if 'ry' in key:
+                        keyboard.cur_y = 0
             keyboard.add_row()
         return keyboard
 
+    def to_json(self):
+        result = []
+
+        if self.metadata != {}:
+            result.append(copy.copy(self.metadata))
+
+
+
+        last_key = None
+        for key in self.get_keys():
+            # TODO: make output cleaner.
+            # TODO: handle all fields correctly
+            # if last_key:
+            #     last_properties = key.get_properties()
+            # last_key = key
+            props = key.get_properties()
+            row = [props.to_json(), key.get_legend_str()]
+            result.append(row)
+
+        return result
+
+    def mirror(self, axis='x'):
+        """
+        Mirror the keys in the layout
+
+        Args:
+            axis: the axis on which to mirror, either 'x' or 'y'
+        """
+        if axis == 'x':
+            mirror = Point(-1, 1)
+        elif axis == 'y':
+            mirror = Point(1, -1)
+        # elif isinstance(axis, Point):
+        #     mirror = axis
+
+        for key in self.get_keys():
+            old_center = key.get_center()
+            key.set_center(mirror.x * old_center.x, mirror.y * old_center.y)
+            key.set_angle(-key.r)
 
 if __name__ == "__main__":
     import tkinter
@@ -509,13 +575,25 @@ if __name__ == "__main__":
         'layout', type=str, action='store',
         help='The layout file to test'
     ),
+    arg_parser.add_argument(
+        "-m", "--mirror",
+        action = 'store_const', const = True, default = False,
+        dest = "mirror",
+        help = "Mirror the supplied layout",
+    )
+
+    arg_parser.add_argument(
+        "-o", "--out-file", type=str,
+        help = "The output file to write to.",
+    )
+
     args = arg_parser.parse_args()
 
     if 0:
         leg1 = "0\n6\n2\n8\n9\nb\n3\n5\n1\n4\n7\na"
         leg2 = "0\n\n\n\n\nb\n3"
-        key1 = Key(0, 0, 1, 1, leg1)
-        key2 = Key(1, 0, 1, 1, leg2)
+        key1 = KLEKey(0, 0, 1, 1, leg1)
+        key2 = KLEKey(1, 0, 1, 1, leg2)
 
         print(key1)
         print(key1.get_legend_list())
@@ -555,6 +633,7 @@ if __name__ == "__main__":
         main_win = tkinter.Tk()
         can = tkinter.Canvas(main_win, width=800, height=800)
         main_win.geometry("+400+400")
+        main_win.title("kle viewer")
         can.pack()
 
         min_x = 0
@@ -570,5 +649,14 @@ if __name__ == "__main__":
             tk_draw_key(can, key, (-min_x + key.spacing//2, -min_y + key.spacing//2))
         tkinter.mainloop()
 
+
     keyboard = KLEKeyboard.from_file(args.layout, spacing=50)
+
+    if args.mirror:
+        keyboard.mirror()
+
+    if args.out_file != None:
+        with open(args.out_file, 'w') as out_file:
+            out_file.write(json.dumps(keyboard.to_json()))
+
     tk_draw_layout(keyboard)
