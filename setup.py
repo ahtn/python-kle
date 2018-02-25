@@ -4,10 +4,15 @@
 # Licensed under the MIT license (http://opensource.org/licenses/MIT)
 
 from setuptools import setup
+import os
+import six
+
+with open(os.path.join("kle", "version.py")) as f:
+    six.exec_(f.read())
 
 setup(
     name = 'kle',
-    version = '0.0.0',
+    version = __version__,
     description = "Python library for parsing keyboard layout files from "
         "keyboard-layout-editor.com.",
     url = "http://github.com/ahtn/python-kle",

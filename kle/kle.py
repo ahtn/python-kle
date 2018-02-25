@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# Copyright 2017 jem@seethis.link
+# Licensed under the MIT license (http://opensource.org/licenses/MIT)
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import six
 import copy
 import json
 import math, cmath
@@ -59,7 +60,10 @@ class Point(namedtuple('Point', ('x', 'y'))):
         return math.hypot((self.x - other.x), (self.y - other.y))
 
     def normalize(self):
-        return Point(self.x, self.y) / self.magnitude()
+        if self.x == 0 and self.y == 0:
+            return Point(self.x, self.y)
+        else:
+            return Point(self.x, self.y) / self.magnitude()
 
 
 class Key(object):
@@ -147,7 +151,7 @@ class Key(object):
 
     def set_legend(self, key, value):
         assert(key in Key.LEGEND_MAP)
-        assert(isinstance(value, six.string_types))
+        assert(type(value) == str)
         self._legends[key] = value
 
     def get_legend_list(self):
@@ -163,27 +167,39 @@ class Key(object):
             result += self._legends[key] + "\n"
         return result.strip("\n")
 
+    @property
+    def spacing(self):
+        return self._spacing
+
+    @property
     def x(self):
         return self._spacing * (self._u_x + self._u_rx)
 
+    @property
     def y(self):
         return self._spacing * (self._u_y + self._u_ry)
 
+    @property
     def w(self):
         return self._spacing * self._u_w
 
+    @property
     def h(self):
         return self._spacing * self._u_h
 
+    @property
     def r(self):
         return self._r
 
+    @property
     def r_rad(self):
         return math.radians(self._r)
 
+    @property
     def rx(self):
         return self._u_rx * self._spacing
 
+    @property
     def ry(self):
         return self._u_ry * self._spacing
 
@@ -191,8 +207,8 @@ class Key(object):
         pos = self.get_pos()
         pos = pos[0] + pos[1]*1j
 
-        edge_w = (self.w() + 0j         ) * rotate_complex(self.r_rad())
-        edge_h = (0        + self.h()*1j) * rotate_complex(self.r_rad())
+        edge_w = (self.w + 0j         ) * rotate_complex(self.r_rad)
+        edge_h = (0        + self.h*1j) * rotate_complex(self.r_rad)
 
         v0 = pos
         v1 = pos + edge_w
@@ -209,7 +225,7 @@ class Key(object):
     def get_center(self):
         pos = self.get_pos()
         pos = pos.x + pos.y*1j
-        center = pos + 1/2 * (self.w() + self.h()*1j) * rotate_complex(self.r_rad())
+        center = pos + 1/2 * (self.w + self.h*1j) * rotate_complex(self.r_rad)
         return Point(center.real, center.imag)
 
     def bounding_box(self):
@@ -236,14 +252,16 @@ class Key(object):
             Point(x    , y + h)
         ]
 
-    def set_spacing(self):
-        self._spacing = self.spacing
-
-    def get_spacing(self):
+    @property
+    def spacing(self):
         return self._spacing
 
+    @spacing.setter
+    def spacing(self, value):
+        self._spacing = value
+
     def get_pos(self):
-        pos = (self._u_x + self._u_y*1j) * rotate_complex(self.r_rad()) + (self._u_rx + self._u_ry*1j)
+        pos = (self._u_x + self._u_y*1j) * rotate_complex(self.r_rad) + (self._u_rx + self._u_ry*1j)
         pos *= self._spacing
         return Point(pos.real, pos.imag)
 
@@ -258,15 +276,19 @@ class Key(object):
             r, u_rx, u_ry
         )
 
+    @property
     def u_x(self):
         return self._u_x + self._u_rx
 
+    @property
     def u_y(self):
         return self._u_y + self._u_ry
 
+    @property
     def u_w(self):
         return self._u_w
 
+    @property
     def u_h(self):
         return self._u_h
 
@@ -315,8 +337,7 @@ class KeyProperties:
         self.homing = False
         self.decal = False
 
-    @staticmethod
-    def from_object(obj):
+    def from_json(obj):
         props = KeyProperties()
         if 'x' in obj:
             props.x = float(obj['x'])
@@ -343,7 +364,7 @@ class KeyProperties:
         return props
 
 
-class KbProperties:
+class KbProperties(object):
     """
     KbProperties apply to all subsequent keycaps
     """
@@ -393,7 +414,7 @@ class KbProperties:
             self.ry = float(obj['ry'])
 
 
-class Keyboard(object):
+class KLEKeyboard(object):
     """Docstring for Keyboard. """
 
     def __init__(self, spacing=19.0):
@@ -405,12 +426,7 @@ class Keyboard(object):
         self.cur_x = 0
         self.cur_y = 0
         self.spacing = spacing
-
-    def set_spacing(self):
-        self.spacing = self.spacing
-
-    def get_spacing(self):
-        return self.spacing
+        self.metadata = {}
 
     def get_keys(self):
         return iter(self.keys)
@@ -443,16 +459,21 @@ class Keyboard(object):
     def from_file(file_name, spacing=19.0):
         with open(file_name) as json_file:
             json_layout = json.loads(json_file.read())
-        return Keyboard.from_json(json_layout, spacing=spacing)
+        return KLEKeyboard.from_json(json_layout, spacing=spacing)
 
     @staticmethod
     def from_json(json_layout, spacing=19.0):
-        keyboard = Keyboard(spacing=spacing)
+        keyboard = KLEKeyboard(spacing=spacing)
         props = KeyProperties()
         pos = 0
         for row in json_layout:
+            if isinstance(row, dict):
+                # Copy all the fields to the metadata
+                for key in row:
+                    keyboard.metadata[key] = row[key]
+                continue
             for key in row:
-                if isinstance(key, six.string_types):
+                if type(key) == str:
                     x = props.x
                     y = props.y
                     w = props.w
@@ -462,8 +483,8 @@ class Keyboard(object):
                     keyboard.add_key(x, y, w, h, text=key_text, decal=d)
                     # reset properties for next key
                     props = KeyProperties()
-                elif isinstance(key, dict):
-                    props = KeyProperties.from_object(key)
+                elif type(key) == dict:
+                    props = KeyProperties.from_json(key)
 
                     old_rx = keyboard.global_props.rx
                     old_ry = keyboard.global_props.ry
@@ -476,26 +497,38 @@ class Keyboard(object):
             keyboard.add_row()
         return keyboard
 
+
 if __name__ == "__main__":
     import tkinter
+    import argparse
 
-    leg1 = "0\n6\n2\n8\n9\nb\n3\n5\n1\n4\n7\na"
-    leg2 = "0\n\n\n\n\nb\n3"
-    key1 = Key(0, 0, 1, 1, leg1)
-    key2 = Key(1, 0, 1, 1, leg2)
+    arg_parser = argparse.ArgumentParser(
+        description='KLE test script'
+    )
+    arg_parser.add_argument(
+        'layout', type=str, action='store',
+        help='The layout file to test'
+    ),
+    args = arg_parser.parse_args()
 
-    print(key1)
-    print(key1.get_legend_list())
+    if 0:
+        leg1 = "0\n6\n2\n8\n9\nb\n3\n5\n1\n4\n7\na"
+        leg2 = "0\n\n\n\n\nb\n3"
+        key1 = Key(0, 0, 1, 1, leg1)
+        key2 = Key(1, 0, 1, 1, leg2)
 
-    print(key2)
-    print(key2.get_legend_list())
+        print(key1)
+        print(key1.get_legend_list())
+
+        print(key2)
+        print(key2.get_legend_list())
 
     def tk_draw_key(can, key, offset):
         verts = key.get_rect_points()
         bb_verts = key.bounding_box_points()
 
-        trans = [(x, y) for (x, y) in verts]
-        trans_bb = [(x, y) for (x, y) in bb_verts]
+        trans = [(x+offset[0], y+offset[1]) for (x, y) in verts]
+        trans_bb = [(x+offset[0], y+offset[1]) for (x, y) in bb_verts]
 
         # draw the bounding boxes as well
         can.create_polygon(
@@ -514,7 +547,7 @@ if __name__ == "__main__":
         # draw the center of the keys
         center = key.get_center()
         can.create_text(
-            center.x, center.y,
+            center.x + offset[0], center.y + offset[1],
             text="x"
         )
 
@@ -524,10 +557,18 @@ if __name__ == "__main__":
         main_win.geometry("+400+400")
         can.pack()
 
+        min_x = 0
+        min_y = 0
+        for key in keyboard.get_keys():
+            bbox = key.bounding_box_points()
+            min_x = min(min_x, *[point.x for point in bbox])
+            min_y = min(min_y, *[point.y for point in bbox])
+
+
         for key in keyboard.get_keys():
             # draw_key(t, key)
-            tk_draw_key(can, key, (100, 100))
+            tk_draw_key(can, key, (-min_x + key.spacing//2, -min_y + key.spacing//2))
         tkinter.mainloop()
 
-    keyboard = Keyboard.from_file("./test_layouts/test-dox.json")
+    keyboard = KLEKeyboard.from_file(args.layout, spacing=50)
     tk_draw_layout(keyboard)
