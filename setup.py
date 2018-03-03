@@ -26,5 +26,6 @@ setup(
     packages = ['kle'],
     install_requires = [ 'six' ],
     keywords = ['keyboard', 'keyboard-layout-editor'],
+    scripts = ['bin/kle-view'],
     zip_safe = False
 )
